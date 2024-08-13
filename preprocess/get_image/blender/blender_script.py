@@ -48,6 +48,19 @@ parser.add_argument("--camera_dist", type=int, default=1.2)
 argv = sys.argv[sys.argv.index("--") + 1 :]
 args = parser.parse_args(argv)
 
+default_angles = [
+    (math.pi, math.pi / 2),
+    (5 * math.pi / 4, math.pi / 2),
+    (3 * math.pi / 2, math.pi / 2),
+    (7 * math.pi / 4, math.pi / 2),
+    (0, math.pi / 2),
+    (math.pi / 4, math.pi / 2),
+    (math.pi / 2, math.pi / 2),
+    (3 * math.pi / 4, math.pi / 2),
+    (0, math.pi / 3), # Top Angle
+    (math.pi, math.pi / 3) # Top Angle
+]
+
 context = bpy.context
 scene = context.scene
 render = scene.render
@@ -214,7 +227,10 @@ def setup_camera():
     return cam, cam_constraint
 
 
-def save_images(object_file: str) -> None:
+def save_images(
+        object_file: str,
+        angles = default_angles,
+    ) -> None:
     """Saves rendered images of the object in the scene."""
     os.makedirs(args.output_dir, exist_ok=True)
     reset_scene()
@@ -236,8 +252,8 @@ def save_images(object_file: str) -> None:
     frames = [] 
 
     for i in range(0, args.num_images):
-        theta = random.random() * math.pi * 2
-        phi = math.radians(random.random() * 45.0 - 90.0)
+        theta = angles[i][0]
+        phi = angles[i][1]
         point = (
             args.camera_dist * math.sin(phi) * math.cos(theta),
             args.camera_dist * math.sin(phi) * math.sin(theta),
