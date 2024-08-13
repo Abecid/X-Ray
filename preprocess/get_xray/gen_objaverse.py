@@ -137,7 +137,6 @@ def process_model(model_path):
             return
         
         meta = load_from_json(json_path)
-        meta["frames"] = meta["frames"]
         
         if os.path.exists(os.path.join(xray_dir, uid, meta["frames"][-1]["file_path"][:-4] + ".npz")):
             print("existed")
@@ -232,6 +231,78 @@ def process_model(model_path):
     except Exception as e:
         print(e)
         return
+
+def remove_visible_faces(model_path):
+    try:
+        uid = os.path.basename(model_path)[:-4]
+        json_path = os.path.join(img_dir, uid, "transforms.json")
+
+        if not os.path.exists(json_path):
+            return
+        
+        meta = load_from_json(json_path)
+        
+        if os.path.exists(os.path.join(xray_dir, uid, meta["frames"][-1]["file_path"][:-4] + ".npz")):
+            print("existed")
+            return
+        
+        mesh = trimesh.load(model_path, force='mesh', process=False)
+        if mesh.visual.kind != "texture":
+            return
+
+        # exchange y and z axis
+        mesh.vertices[:, [1, 2]] = mesh.vertices[:, [2, 1]]
+        mesh.vertices[:, 1] *= -1
+        box_min, box_max = mesh.bounds
+        scale = np.max(np.abs(box_max - box_min))
+        mesh.apply_scale(1 / scale)
+
+        box_min, box_max = mesh.bounds
+        center = (box_min + box_max) / 2
+        mesh.apply_translation(-center)
+
+        raycast = RaycastingImaging()
+        
+        # Store the face indices that are hit in all frames
+        all_hit_faces = set()
+
+        for frame in (meta["frames"]):
+            c2w = np.array(frame["c2w"])
+            Rt = np.linalg.inv(c2w)
+            mesh_frame = mesh.copy().apply_transform(Rt)
+            c2w = np.eye(4).astype(np.float32)[:3]
+
+            camera_angle_x = float(meta["camera_angle_x"])
+            focal_length = 0.5 * image_width / np.tan(0.5 * camera_angle_x)
+
+            cx = image_width / 2.0
+            cy = image_height / 2.0
+
+            intrinsics = np.array([[focal_length, 0, cx],
+                                [0, focal_length, cy],
+                                [0, 0, 1]])
+            
+            raycast.prepare(image_height=image_height, image_width=image_width, intrinsics=intrinsics, c2w=c2w)
+            
+            ray_indexes, points, normals, colors, direction, mesh_vertex_indexes, mesh_face_indexes = raycast.get_image(mesh_frame)   
+
+            # Collect all unique face indices hit by the rays
+            all_hit_faces.update(mesh_face_indexes)
+
+        # Create a mask to remove the hit faces from the mesh
+        mask = np.ones(len(mesh.faces), dtype=bool)
+        mask[list(all_hit_faces)] = False
+        remaining_faces = mesh.faces[mask]
+
+        # Update the mesh with remaining faces
+        mesh.update_faces(remaining_faces)
+
+        # Save the modified mesh
+        mesh.export(os.path.join(xray_dir, uid, "modified.ply"))
+
+    except Exception as e:
+        print(f"An error occurred: {e}")
+                
 
 if __name__ == "__main__":
     root_dir = "/hdd/taohu/Data/Objaverse/Data/hf-objaverse-v1"
